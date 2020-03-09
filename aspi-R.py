@@ -110,10 +110,15 @@ class NodeTree:
             ind_rob = colorToIndex[move[0]]
             prev_pos=self.pos_rob[ind_rob]
             pos, cellsToRetrieve = moveRobot(ind_rob, self.pos_rob, move[1])#attention, changes!
+            self.lastCleanedCells = set(cellsToRetrieve)
+            self.lastCleanedCells.add(prev_pos)
+            #print(self.lastCleanedCells)
             self.pos_rob[ind_rob] = pos
             #print("prevpos:", prev_pos, "move: ", move, "pos: ", pos)
             for cell in cellsToRetrieve:
                 self.cellsToClean.discard(cell)
+        else:
+            self.lastCleanedCells = set()
         if not(self.cellsToClean):
             print("last move: ", move, "last pos: ", pos_rob)
             solution = move
@@ -132,6 +137,53 @@ class NodeTree:
                     if solution:
                         solution = self.move+" "+solution
                         return#it is no use building more nodes...
+
+    def createTree(self, i, seq_data):
+        """
+        It creates all the sons. Each son matches a new move and a new configuration.
+        """
+        global solution
+        if i==0:
+            return
+
+
+        for ind_rob in range(nbRobots):
+            for dirct in ["N", "W", "E", "S"]:
+                move = indexToColor[ind_rob]+dirct
+                if not(isThereAWall(ind_rob, self.pos_rob, dirct)):
+                    self.sons.append(NodeTree(move, self.pos_rob, self.cellsToClean))
+                    useless = False
+                    if not(self.lastCleanedCells & self.sons[-1].lastCleanedCells) and self.move and colorToIndex[self.move[0]]<ind_rob:#
+                        useless = True
+                        #print("->: ", self.lastCleanedCells, "\n->", self.sons[-1].lastCleanedCells)
+                    if useless:
+                        continue
+                    curpos = self.sons[-1].pos_rob[ind_rob]
+                    curNbCleanedCells = len(self.cellsToClean)-len(self.sons[-1].cellsToClean)
+                    if curNbCleanedCells==0:
+                        for data in reversed(seq_data):
+                            if ind_rob!=data[0]:
+                                break
+                            if data[1]==curpos:
+                                useless = True
+                                #print(seq_data, (ind_rob, curpos, curNbCleanedCells))
+                                break
+                            if data[2]!=0:
+                                break
+                        if useless:
+                            continue
+                    if solution:
+                        solution = self.move+" "+solution
+                        return#it is no use building more nodes...
+                    seq_data.append((ind_rob, curpos, curNbCleanedCells))
+                    self.sons[-1].createTree(i-1, seq_data)
+                    if solution:
+                        solution = self.move+" "+solution
+                        return
+                    seq_data.pop(-1)
+        for son in self.sons:
+            del son
+
 
     def newStage(self):
         """
@@ -192,7 +244,7 @@ class Aspi_R:
         file.close()
         self.root = NodeTree("", self.pos_rob, self.cellsToClean)
 
-    def solve(self):
+    def solve_stage_by_stage(self):
         """
         We find here the optimal sequence of moves.
         """
@@ -204,6 +256,20 @@ class Aspi_R:
             print(i)
             i = i+1
             self.root.newStage()
+        print("solution:\n", solution)
+
+    def solve(self):
+        """
+        We find here the optimal sequence of moves.
+        """
+        global solution
+        print(self.pos_rob)
+        print(self.cellsToClean, "\n", nbRobots, "\n", grid)
+        i = 1
+        while not(solution) and i<12:
+            print(i)
+            i = i+1
+            self.root.createTree(i, [])
         print("solution:\n", solution)
 
 
