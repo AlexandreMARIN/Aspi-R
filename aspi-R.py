@@ -8,7 +8,7 @@ colorToIndex = None
 indexToColor = None
 
 
-seq_nodes = []
+seqNodes = []
 maxDepth = None
 
 
@@ -87,10 +87,14 @@ def isThereAWall(ind_rob, pos_rob, dirct):#or a robot !
 
 def moveRobot(rob, posRob, dirct):
     pos = [incrementPos(posRob[rob], dirct)]
+    prevPos = posRob[rob]
+    posRob[rob] = pos[-1]
     cannotMove, rob2 = isThereAWall(rob, posRob, dirct)
     while not(cannotMove):
         pos.append(incrementPos(pos[-1], dirct))
+        posRob[rob] = pos[-1]
         cannotMove, rob2 = isThereAWall(rob, posRob, dirct)
+    posRob[rob] = prevPos
     return pos, rob2
 
 def getMoves(posRob):
@@ -99,19 +103,47 @@ def getMoves(posRob):
     for i in range(nbRobots):
         moves[i] = {}
         for dirct in ["N", "S", "W", "E"]:
-            cannotMove, = isThereAWall(i, posRob, dirct)
+            cannotMove, rob = isThereAWall(i, posRob, dirct)
             if not(cannotMove):
                 (lastCleanedCells, rob) = moveRobot(i, posRob, dirct)
-                move[i][dirct] = (lastCleanedCells, rob, set())
+                moves[i][dirct] = (lastCleanedCells, rob, set())
     return moves
 
+def buildTree(depth):
+    global maxDepth
+    global seqNodes
+
+    if len(seqNodes[depth].cellsToClean) == 0:
+        maxDepth = depth
+        getSolution(depth)
+        print("move:", seqNodes[depth].dirct, depth)
+        return
+    if depth >= maxDepth:
+        return
+    seqNodes[depth].createSons()
+    for rob in iter(seqNodes[depth].movesSons):
+        for dirct in iter(seqNodes[depth].movesSons[rob]):
+            posRob = deepcopy(seqNodes[depth].posRob)
+            posRob[rob] = seqNodes[depth].movesSons[rob][dirct][0][-1]
+            cellsToClean = deepcopy(seqNodes[depth].cellsToClean)
+            for cell in seqNodes[depth].movesSons[rob][dirct][0]:
+                cellsToClean.discard(cell)
+            seqNodes[depth+1] = NodeTree(rob, dirct, posRob, cellsToClean, seqNodes[depth].movesSons[rob][dirct][2])
+            buildTree(depth+1)
+
+
+def getSolution(depth):
+    global solution
+    solution = ""
+    for d in range(1, depth+1):
+        solution = solution + " " + indexToColor[seqNodes[d].movedRob] + seqNodes[d].dirct
 
 class NodeTree:
     """
     It represents a node of a tree.
     """
 
-    def __init__(self, movedRob, dirct, posRob, cellsToClean):
+    def __init__(self, movedRob, dirct, posRob, cellsToClean, allowedMoves):
         """
         pos_rob: positions of the robots
         move: the move of the robot which leads to this node
@@ -120,31 +152,30 @@ class NodeTree:
         Given the move of a robot in the form of a string 'letter of a color'+'direction',
         we update pos_rob and cellsToClean.
         """
-        global solution
         self.movedRob = movedRob
         self.dirct = dirct
         self.posRob = posRob
         self.cellsToClean = cellsToClean
+        self.allowedMoves = allowedMoves
 
 
     def createSons(self):
         """
         It creates all the sons. Each son matches a new move and a new configuration.
         """
-        global solution
+
         movesSons = getMoves(self.posRob)
 
         for rob in range(nbRobots-1):
-            for dirct in iter(movesSons[rob]):
-                for dirct2 in iter(movesSons[rob+1]):
-                    if (rob+1, dirct2) not in self.allowedMoves and movesSons[rob][dirct][1]!=rob+1 and movesSons[rob+1][dirct2][1]!=rob and movesSons[rob][dirct][0][-1] not in movesSons[rob+1][dirct2][0]  and movesSons[rob+1][dirct2][0][-1] not in movesSons[rob][dirct][0]:
-                        movesSons[rob][dirct][2].add((rob+1, dirct2))
-                        del movesSons[rob+1][dirct2]
-                for rob2 in range(rob+2, nbRobots):
-                    for dirct2 in iter(movesSons[rob2]):
-                        if (rob2, dirct2) not in self.allowedMoves and movesSons[rob][dirct][1]!=rob2 and movesSons[rob2][dirct2][1]!=rob and movesSons[rob][dirct][0][-1] not in movesSons[rob2][dirct2][0]  and movesSons[rob2][dirct2][0][-1] not in movesSons[rob][dirct][0]:
+            for dirct in list(iter(movesSons[rob])):
+                for rob2 in range(rob+1, nbRobots):
+                    for dirct2 in list(iter(movesSons[rob2])):
+                        if ( (rob2, dirct2) not in self.allowedMoves or (rob, dirct) in self.allowedMoves) and movesSons[rob][dirct][1]!=rob2 and movesSons[rob2][dirct2][1]!=rob and movesSons[rob][dirct][0][-1] not in movesSons[rob2][dirct2][0]  and movesSons[rob2][dirct2][0][-1] not in movesSons[rob][dirct][0]:
                             del movesSons[rob2][dirct2]
+                            movesSons[rob][dirct][2].add((rob2, dirct2))
         self.movesSons = movesSons
+
+
 
 class Aspi_R:
     """
@@ -188,19 +219,24 @@ class Aspi_R:
             self.cellsToClean.remove(self.posRob[i])
             
         file.close()
-        self.root = NodeTree(None, self.pos_rob, self.cellsToClean)#
+        self.root = NodeTree(None, None, self.posRob, self.cellsToClean, set())
 
 
     def solve(self):
         """
         We find here an optimal sequence of moves.
         """
+        global maxDepth
+        global seqNodes
         global solution
-        i = 1
-        while not(solution) and i<20:
-            print(i)
-            i = i+1
-            self.root.createTree(i, [])
+        maxDepth = 2
+        seqNodes = [self.root]
+        seqNodes = seqNodes + [None]*(maxDepth)
+        while not(solution):
+            print(maxDepth)
+            buildTree(0)
+            maxDepth = maxDepth+4
+            seqNodes = seqNodes + [None]*4
         print("solution:\n", solution)
 
 
