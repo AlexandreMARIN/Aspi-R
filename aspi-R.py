@@ -1,20 +1,25 @@
 from copy import *
+
 #the grid
 grid = None
+
 #number of robots
 nbRobots = None
+
 #we have a 1-1 map to transform a letter into an integer
 colorToIndex = None
 indexToColor = None
 
-
+#we need a sequence of nodes to represent a branch of the tree
 seqNodes = []
+
+#maximum depth for the search
 maxDepth = None
 
-
+#this variable will contain an optimal solution
 solution = ""
 
-
+#hypothesis:
 #four robots at most!
 
 
@@ -34,11 +39,18 @@ def incrementPos(pos, dirct):
 
 def isThereAWall(ind_rob, pos_rob, dirct):#or a robot !
     """
+    Input :
+      ind_rob: index of the robot we want to move
+      pos_rob: dict. containing positions of robots
+      dirct : direction in {"N", "S", "W", "E"}
     That function returns true iif a robot at pos_rob[ind_rob] cannot
     move one cell in the direction dirct because of an other robot or a wall.
+    If another robot is a hindrance, we return also its index.
+    Thus we always return a pair (b, ind),
+    where b is a Boolean value and ind is either -1 or an index of a robot if that robot is a hindrance.
+    When ind=-1, a wall makes the current robot stop moving.
     """
-    global nbRobots
-    curpos = pos_rob[ind_rob]
+    curpos = pos_rob[ind_rob]#current position
     
     if dirct == "N":
         if (grid[curpos[0]][curpos[1]]) & 1 == 1:
@@ -85,7 +97,18 @@ def isThereAWall(ind_rob, pos_rob, dirct):#or a robot !
                 return True, ind
     return False, -1
 
+
 def moveRobot(rob, posRob, dirct):
+    """
+    Input:
+      rob : index of the robot we want to move
+      posRob : dict. containing positions of all the robots
+      dirct : a direction (as above)
+
+    That function moves the robot 'rob' and returns
+    a pair (p, r), where p is the new position of 'rob'
+    and r is either -1 or the index of an other robot which acts as a wall.
+    """
     pos = [incrementPos(posRob[rob], dirct)]
     prevPos = posRob[rob]
     posRob[rob] = pos[-1]
@@ -97,8 +120,17 @@ def moveRobot(rob, posRob, dirct):
     posRob[rob] = prevPos
     return pos, rob2
 
+
 def getMoves(posRob):
-    global nbRobots
+    """
+    Input : posRob is a dict. containing positions of robots.
+    Here we prepare and return a dict. associating each index of a robot with
+    another dict., which itself associates a direction dirct with a 4-tuple
+    of the form:
+      (last cleaned cells, robot met during move (or -1), empty set, empty set).
+
+    The entry dirct is valid for moves[rob] iif rob is allowed to move in the direction dirct.
+    """
     moves = {}
     for i in range(nbRobots):
         moves[i] = {}
@@ -109,27 +141,37 @@ def getMoves(posRob):
                 moves[i][dirct] = [lastCleanedCells, rob, set(), set()]
     return moves
 
+
 def buildTree(depth):
+    """
+    That function builds the tree containing all the possibilities
+    'depth' is the current depth in the tree we explore.
+    That function does not go beyond maxDepth and the first call must have the parameter 0.
+    """
     global maxDepth
     global seqNodes
 
     if len(seqNodes[depth].cellsToClean) == 0:
+        #we have just found a solution, not necessarily optimal
         maxDepth = depth - 1
         getSolution(depth)
-        #print("move:", seqNodes[depth].dirct, depth)
         return
+
     if depth >= maxDepth:
+        #we have gone too far !
         return
-    seqNodes[depth].createSons()
-    for rob in iter(seqNodes[depth].movesSons):
-        for dirct in iter(seqNodes[depth].movesSons[rob]):
-            posRob = deepcopy(seqNodes[depth].posRob)
-            posRob[rob] = seqNodes[depth].movesSons[rob][dirct][0][-1]
-            cellsToClean = deepcopy(seqNodes[depth].cellsToClean)
-            for cell in seqNodes[depth].movesSons[rob][dirct][0]:
+    #we create all the possible moves
+    cN = seqNodes[depth]#current Node
+    cN.createSons()
+    for rob in iter(cN.movesSons):
+        for dirct in iter(cN.movesSons[rob]):
+            #we update information for that son of the current node
+            posRob = deepcopy(cN.posRob)
+            posRob[rob] = cN.movesSons[rob][dirct][0][-1]
+            cellsToClean = deepcopy(cN.cellsToClean)
+            for cell in cN.movesSons[rob][dirct][0]:#we discard cleaned cells because of the move of rob
                 cellsToClean.discard(cell)
-            #print("posRob: ", posRob)
-            seqNodes[depth+1] = NodeTree(rob, dirct, posRob, cellsToClean, seqNodes[depth].movesSons[rob][dirct][2], seqNodes[depth].movesSons[rob][dirct][3])
+            seqNodes[depth+1] = NodeTree(rob, dirct, posRob, cellsToClean, cN.movesSons[rob][dirct][2], cN.movesSons[rob][dirct][3])
             if isUseless(depth+1):
                 continue
             buildTree(depth+1)
@@ -137,19 +179,26 @@ def buildTree(depth):
                 return
 
 def isUseless(depth):
+    """
+    returns True iif the (depth+1)-th node in seqNodes if useless,
+    i.e. a robot returns its initial place without cleaning cells.
+    """
     nbcc = len(seqNodes[depth].cellsToClean)
     curpos = seqNodes[depth].posRob[seqNodes[depth].movedRob]
     for d in reversed(range(1, depth)):
         node = seqNodes[d]
         if len(node.cellsToClean) == nbcc:
             if node.posRob[node.movedRob] == curpos:
-                #print("useless")
                 return True
         else:
             return False
     return False
 
 def getSolution(depth):
+    """
+    It builds a solution by retrieving information of 'seqNodes'
+    in cells having an index in [1, depth].
+    """
     global solution
     solution = ""
     for d in range(1, depth+1):
@@ -162,12 +211,13 @@ class NodeTree:
 
     def __init__(self, movedRob, dirct, posRob, cellsToClean, forbiddenMoves, allowedMoves):
         """
-        pos_rob: positions of the robots
-        move: the move of the robot which leads to this node
+        movedRob : the robot we move
+        dirct : the direction of the move
+        posRob: positions of robots
         cellsToClean: cells which have not been cleaned yet before the move
-
-        Given the move of a robot in the form of a string 'letter of a color'+'direction',
-        we update pos_rob and cellsToClean.
+        forbiddenMoves: forbidden moves
+        allowedMoves: allowed moves
+        Those last two parameters are used in the next function.
         """
         self.movedRob = movedRob
         self.dirct = dirct
@@ -178,42 +228,43 @@ class NodeTree:
 
     def createSons(self):
         """
-        It creates all the sons. Each son matches a new move and a new configuration.
+        It creates all the moves associated with a son of the instance.
         """
 
         movesSons = getMoves(self.posRob)
 
-        indepPairs = {}
-        depMoves = set()
-        #print(self.forbiddenMoves)
-        for mov in self.forbiddenMoves:
+        indepPairs = {}#independent pairs of moves. Moves have the form: (rob, direction).
+        #Each pair of moves contains data in the form ((r2, d2), (r1, d1)) such that r1<r2.
+
+        depMoves = set()#dependent moves: contains pairs (robot index, direction)
+
+        for mov in self.forbiddenMoves:#we discard forbidden moves
             movesSons[mov[0]].pop(mov[1], None)
 
-        for rob in set(movesSons.keys())-{nbRobots-1}:
+        for rob in set(movesSons.keys())-{nbRobots-1}:#we rebuild all the possibilities given by movesSons()
             for dirct in list(iter(movesSons[rob])):
                 for rob2 in set(movesSons.keys())-set(range(rob+1)):
                     for dirct2 in list(iter(movesSons[rob2])):
                         if movesSons[rob][dirct][1]!=rob2 and movesSons[rob2][dirct2][1]!=rob and movesSons[rob][dirct][0][-1] not in movesSons[rob2][dirct2][0] and movesSons[rob2][dirct2][0][-1] not in movesSons[rob][dirct][0]:
-                            if (rob2, dirct2) in indepPairs:
+                            if (rob2, dirct2) in indepPairs:#(rob, dirct) and (rob2, dirct2) are independent
                                 indepPairs[(rob2, dirct2)].append((rob, dirct))
                             else:
                                 indepPairs[(rob2, dirct2)] = [(rob, dirct)]
                         else:
-                            depMoves.add((rob2, dirct2))
-        #print("dM: ", depMoves)
-        #print('iP: ', indepPairs)
+                            depMoves.add((rob2, dirct2))#(rob2, dirct2) depends on at least an other move
+
         for (rob, dirct) in indepPairs.keys():
             for mov in indepPairs[(rob, dirct)]:
                 if mov[1] in movesSons[mov[0]]:
-                    movesSons[mov[0]][mov[1]][3].add((rob, dirct))
+                    movesSons[mov[0]][mov[1]][3].add((rob, dirct))#we allow (rob, dirct) because it has been already suppressed
             if (rob, dirct) in depMoves:
                 for mov in indepPairs.get((rob, dirct), []):
-                    movesSons[rob][dirct][2].add(mov)
+                    movesSons[rob][dirct][2].add(mov)#we forbid that move 'mov' if 'rob' moves in the direction 'dirct'
+                    #because if the move (rob, dirct) is chosen, moves of robots with higher priority which do not depend on (rob, dirct) are useless ! (see explanations in the .pdf file)
             else:
                 if (rob, dirct) not in self.allowedMoves:
-                    movesSons[rob].pop(dirct, None)
+                    movesSons[rob].pop(dirct, None)#we suppress that move (rob dirct) because it would create equivalent possibilities
 
-        #print("mS ", movesSons)
         self.movesSons = movesSons
 
 
@@ -271,9 +322,8 @@ class Aspi_R:
         global seqNodes
         global solution
         maxDepth = 14
-        seqNodes = [self.root]
-        seqNodes = seqNodes + [None]*(maxDepth)
-        while not(solution)and maxDepth<24:
+        seqNodes = [self.root] + [None]*(maxDepth)
+        while not(solution):
             print("maxDepth:", maxDepth)
             buildTree(0)
             maxDepth = maxDepth+4
@@ -284,7 +334,7 @@ class Aspi_R:
 #execution
 import argparse
 parser = argparse.ArgumentParser()
-parser.add_argument("file")
+parser.add_argument("file") #don't forget the file !
 args = parser.parse_args()
 
 problem = Aspi_R(args.file)
