@@ -138,7 +138,7 @@ def getMoves(posRob):
             cannotMove, rob = isThereAWall(i, posRob, dirct)
             if not(cannotMove):
                 (lastCleanedCells, rob) = moveRobot(i, posRob, dirct)
-                moves[i][dirct] = [lastCleanedCells, rob, set(), set()]
+                moves[i][dirct] = [lastCleanedCells, rob, set()]
     return moves
 
 
@@ -163,6 +163,7 @@ def buildTree(depth):
     #we create all the possible moves
     cN = seqNodes[depth]#current Node
     cN.createSons()
+    sons = []
     for rob in iter(cN.movesSons):
         for dirct in iter(cN.movesSons[rob]):
             #we update information for that son of the current node
@@ -171,12 +172,18 @@ def buildTree(depth):
             cellsToClean = deepcopy(cN.cellsToClean)
             for cell in cN.movesSons[rob][dirct][0]:#we discard cleaned cells because of the move of rob
                 cellsToClean.discard(cell)
-            seqNodes[depth+1] = NodeTree(rob, dirct, posRob, cellsToClean, cN.movesSons[rob][dirct][2], cN.movesSons[rob][dirct][3])
-            if isUseless(depth+1):
-                continue
-            buildTree(depth+1)
-            if depth >= maxDepth:
-                return
+            sons.append(NodeTree(rob, dirct, posRob, cellsToClean, cN.movesSons[rob][dirct][2]))
+
+
+
+    for mov in sorted(sons, key=lambda mov: ( (len(cN.cellsToClean) - len(mov.cellsToClean)) / (abs(cN.posRob[mov.movedRob][1]-mov.posRob[mov.movedRob][1])+abs(cN.posRob[mov.movedRob][0]-mov.posRob[mov.movedRob][0])) ), reverse=True):
+        seqNodes[depth+1] = mov
+        if isUseless(depth+1):
+            continue
+        buildTree(depth+1)
+        if depth >= maxDepth:
+            return
+
 
 def isUseless(depth):
     """
@@ -204,19 +211,19 @@ def getSolution(depth):
     for d in range(1, depth+1):
         solution = solution + " " + indexToColor[seqNodes[d].movedRob] + seqNodes[d].dirct
 
+
 class NodeTree:
     """
     It represents a node of a tree.
     """
 
-    def __init__(self, movedRob, dirct, posRob, cellsToClean, forbiddenMoves, allowedMoves):
+    def __init__(self, movedRob, dirct, posRob, cellsToClean, forbiddenMoves):
         """
         movedRob : the robot we move
         dirct : the direction of the move
         posRob: positions of robots
         cellsToClean: cells which have not been cleaned yet before the move
         forbiddenMoves: forbidden moves
-        allowedMoves: allowed moves
         Those last two parameters are used in the next function.
         """
         self.movedRob = movedRob
@@ -224,7 +231,7 @@ class NodeTree:
         self.posRob = posRob
         self.cellsToClean = cellsToClean
         self.forbiddenMoves = forbiddenMoves
-        self.allowedMoves = allowedMoves
+
 
     def createSons(self):
         """
@@ -232,11 +239,6 @@ class NodeTree:
         """
 
         movesSons = getMoves(self.posRob)
-
-        indepPairs = {}#independent pairs of moves. Moves have the form: (rob, direction).
-        #Each pair of moves contains data in the form ((r2, d2), (r1, d1)) such that r1<r2.
-
-        depMoves = set()#dependent moves: contains pairs (robot index, direction)
 
         for mov in self.forbiddenMoves:#we discard forbidden moves
             movesSons[mov[0]].pop(mov[1], None)
@@ -246,24 +248,8 @@ class NodeTree:
                 for rob2 in set(movesSons.keys())-set(range(rob+1)):
                     for dirct2 in list(iter(movesSons[rob2])):
                         if movesSons[rob][dirct][1]!=rob2 and movesSons[rob2][dirct2][1]!=rob and movesSons[rob][dirct][0][-1] not in movesSons[rob2][dirct2][0] and movesSons[rob2][dirct2][0][-1] not in movesSons[rob][dirct][0]:
-                            if (rob2, dirct2) in indepPairs:#(rob, dirct) and (rob2, dirct2) are independent
-                                indepPairs[(rob2, dirct2)].append((rob, dirct))
-                            else:
-                                indepPairs[(rob2, dirct2)] = [(rob, dirct)]
-                        else:
-                            depMoves.add((rob2, dirct2))#(rob2, dirct2) depends on at least an other move
+                            movesSons[rob2][dirct2][2].add((rob, dirct))
 
-        for (rob, dirct) in indepPairs.keys():
-            for mov in indepPairs[(rob, dirct)]:
-                if mov[1] in movesSons[mov[0]]:
-                    movesSons[mov[0]][mov[1]][3].add((rob, dirct))#we allow (rob, dirct) because it has been already suppressed
-            if (rob, dirct) in depMoves:
-                for mov in indepPairs.get((rob, dirct), []):
-                    movesSons[rob][dirct][2].add(mov)#we forbid that move 'mov' if 'rob' moves in the direction 'dirct'
-                    #because if the move (rob, dirct) is chosen, moves of robots with higher priority which do not depend on (rob, dirct) are useless ! (see explanations in the .pdf file)
-            else:
-                if (rob, dirct) not in self.allowedMoves:
-                    movesSons[rob].pop(dirct, None)#we suppress that move (rob dirct) because it would create equivalent possibilities
 
         self.movesSons = movesSons
 
@@ -311,7 +297,7 @@ class Aspi_R:
             self.cellsToClean.remove(self.posRob[i])
             
         file.close()
-        self.root = NodeTree(None, None, self.posRob, self.cellsToClean, set(), set())
+        self.root = NodeTree(None, None, self.posRob, self.cellsToClean, set())
 
 
     def solve(self):
@@ -321,7 +307,7 @@ class Aspi_R:
         global maxDepth
         global seqNodes
         global solution
-        maxDepth = 14
+        maxDepth = 16
         seqNodes = [self.root] + [None]*(maxDepth)
         while not(solution):
             print("maxDepth:", maxDepth)
